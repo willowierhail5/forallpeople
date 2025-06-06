@@ -100,11 +100,27 @@ def _evaluate_dims_and_factor(
     is elligible for a prefix."""
     defined = _get_units_by_factor(
         factor=factor, dims=dims_orig, units_env=env_fact, power=power
-    )
+    )  # Empty dict when no match
 
     # Derived units not retrieving inverted definitions
-    derived = _get_derived_unit(dims=dims_orig, units_env=env_dims)
+    derived = _get_derived_unit(
+        dims=dims_orig, units_env=env_dims
+    )  # Empty dict when no match
+
+    # HERE! You are trying to figure out how prioritize between
+    # the defined, derived, and default units
+    # Once this is done, this feature _should_ be fully implemented
+    default = _get_default_unit(dims=dims_orig, units_env=env_dims)
+
     single_dim = _dims_basis_multiple(dims_orig)
+
+    # The default-swap logic
+    if default and factor != 1:
+        default_attributes = list(default.values())[0]
+        if not defined and "Factor" in default_attributes:
+            defined = default
+            factor = default_attributes["Factor"]
+
     if defined:
         units_match = defined
         prefix_bool = False
@@ -121,7 +137,7 @@ def _evaluate_dims_and_factor(
         symbol = symbol or name
     else:
         symbol = ""
-    return (symbol, prefix_bool)
+    return (symbol, prefix_bool, factor)
 
 
 @functools.lru_cache(maxsize=None)
@@ -163,7 +179,7 @@ def _match_factors(
         return dict()
 
 
-def _get_derived_unit(dims: Dimensions, units_env: dict) -> dict:
+def _get_derived_unit(dims: Dimensions, units_env: Callable) -> dict:
     """
     Returns a units definition dict that matches 'dimensions'.
     If 'dimensions' is a derived unit raised to a power (e.g. N**2),
@@ -172,6 +188,27 @@ def _get_derived_unit(dims: Dimensions, units_env: dict) -> dict:
     """
     derived_units = units_env().get("derived")
     return derived_units.get(dims, dict())
+
+
+def _get_default_unit(dims: Dimensions, units_env: Callable) -> dict:
+    """
+    Returns a units definition dict that matches 'dimensions' if a match
+    exists in the 'units_env' (empty dict, otherwise).
+    The units definition dict will be the one that is indicated to be the
+    default unit for that dimension, if a default is defined for that dimension.
+    """
+    defined_matches = units_env().get("defined").get(dims, dict())
+    derived_matches = units_env().get("derived").get(dims, dict())
+
+    for ident, defined_match in defined_matches.items():
+        if "Default" in defined_match and defined_match.get("Default"):
+            return {ident: defined_match}
+
+    for ident, derived_match in derived_matches.items():
+        if "Default" in derived_match and derived_match.get("Default"):
+            return {ident: derived_match}
+
+    return dict()
 
 
 def _get_unit_string(unit_components: list, repr_format: str) -> str:
@@ -439,14 +476,14 @@ def _auto_prefix_kg(value: float, power: Union[int, float]) -> str:
     prefixes = _prefixes
     if abs(value) >= 1:
         for prefix, power_of_ten in prefixes.items():
-            if abs(value) >= (power_of_ten / 1000.) ** abs(power):
+            if abs(value) >= (power_of_ten / 1000.0) ** abs(power):
                 return prefix
     else:
         reverse_prefixes = sorted(prefixes.items(), key=lambda prefix: prefix[0])
         # Get the smallest prefix to start...
         previous_prefix = reverse_prefixes[0][0]
         for prefix, power_of_ten in reversed(list(prefixes.items())):
-            if abs(value) < (power_of_ten / 1000.) ** abs(power):
+            if abs(value) < (power_of_ten / 1000.0) ** abs(power):
                 return previous_prefix
             else:
                 previous_prefix = prefix
@@ -469,7 +506,7 @@ def _auto_prefix_value(
         return value * kg_factor
     if prefix in _additional_prefixes:
         return value / ((_additional_prefixes[prefix] / kg_factor) ** power)
-    if 0. < value < 1.:
+    if 0.0 < value < 1.0:
         return value / ((_prefixes[prefix] / kg_factor) ** abs(power))
     return value / ((_prefixes[prefix] / kg_factor) ** power)
 

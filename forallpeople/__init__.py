@@ -17,6 +17,7 @@ A module to model the seven SI base units:
 
   ...and other derived and non-SI units for practical calculations.
 """
+
 #    Copyright 2020 Connor Ferster
 
 #    Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +33,7 @@ A module to model the seven SI base units:
 #    limitations under the License.
 from __future__ import annotations
 
-__version__ = "2.6.7"
+__version__ = "2.7.1"
 
 from fractions import Fraction
 from typing import Union, Optional
@@ -209,7 +210,6 @@ class Physical(object):
             format_spec = f".{self.precision}f"
         dims = self.dimensions
         factor = self.factor
-        float_factor = float(factor)
         val = self.value
         prefix = ""
         prefixed = self.prefixed
@@ -224,9 +224,13 @@ class Physical(object):
 
         # Determine if there is a symbol for these dimensions in the environment
         # and if the quantity is eligible to be prefixed
-        symbol, prefix_bool = phf._evaluate_dims_and_factor(
+        # mod_factor is either the original factor or the new default factor
+        # if a default look-up was triggered
+        symbol, prefix_bool, mod_factor = phf._evaluate_dims_and_factor(
             dims_orig, factor, power, env_fact, env_dims
         )
+        factor = mod_factor
+        float_factor = float(factor)
         # Get the appropriate prefix
 
         if prefix_bool and prefixed == "unity":
@@ -299,7 +303,7 @@ class Physical(object):
     def __float__(self):
         value = self.value
         factor = float(self.factor)
-        if factor != 1.:
+        if factor != 1.0:
             return value * factor
         kg_bool = False
         dims = self.dimensions
@@ -652,6 +656,8 @@ class Physical(object):
             new_value = self.value**other
             new_dimensions = vec.multiply(self.dimensions, other)
             new_factor = phf.fraction_pow(self.factor, other)
+            if new_dimensions == Dimensions(0, 0, 0, 0, 0, 0, 0):
+                return float(new_value * new_factor)
             return Physical(new_value, new_dimensions, new_factor, self.precision)
         else:
             raise ValueError(
